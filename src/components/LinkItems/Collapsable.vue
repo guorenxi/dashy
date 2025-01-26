@@ -1,22 +1,27 @@
 <template>
   <div
-    :class="`collapsable ${rowColSpanClass} ${collapseClass} ${!cutToHeight ? 'full-height' : ''}`"
+    v-bind:class="[
+    { 'is-open': isExpanded, 'full-height': cutToHeight },
+    `collapsable ${rowColSpanClass}`, sectionClassName
+    ]"
     :style="`${color ? 'background: '+color : ''}; ${sanitizeCustomStyles(customStyles)};`"
   >
     <input
       :id="sectionKey"
       class="toggle"
       type="checkbox"
-      :checked="isExpanded"
-      @change="collapseChanged"
+      v-model="checkboxState"
       tabIndex="-1"
     >
     <label :for="sectionKey" class="lbl-toggle" tabindex="-1"
-      @mouseup.right="openContextMenu" @contextmenu.prevent>
+      @mouseup.right="openContextMenu" @contextmenu.prevent
+      @long-press="openContextMenu" v-longPress="500">
       <Icon v-if="icon" :icon="icon" size="small" :url="title" class="section-icon" />
       <h3>{{ title }}</h3>
       <EditModeIcon v-if="isEditMode" @click="openEditModal"
         v-tooltip="editTooltip()" class="edit-mode-item" />
+      <OpenIcon @click.prevent.stop="openContextMenu" @contextmenu.prevent
+        class="edit-mode-item" />
     </label>
     <div class="collapsible-content">
       <div class="content-inner">
@@ -27,10 +32,11 @@
 </template>
 
 <script>
-
+import longPress from '@/directives/LongPress';
 import { localStorageKeys } from '@/utils/defaults';
 import Icon from '@/components/LinkItems/ItemIcon.vue';
 import EditModeIcon from '@/assets/interface-icons/interactive-editor-edit-mode.svg';
+import OpenIcon from '@/assets/interface-icons/config-open-settings.svg';
 
 export default {
   name: 'CollapsableContainer',
@@ -48,13 +54,16 @@ export default {
   components: {
     Icon,
     EditModeIcon,
+    OpenIcon,
+  },
+  directives: {
+    longPress,
   },
   computed: {
     isEditMode() {
       return this.$store.state.editMode;
     },
     sectionKey() {
-      if (this.isEditMode) return undefined;
       return `collapsible-${this.uniqueKey}`;
     },
     collapseClass() {
@@ -64,14 +73,57 @@ export default {
       const { rows, cols, checkSpanNum } = this;
       return `${checkSpanNum(cols, 'col')} ${checkSpanNum(rows, 'row')}`;
     },
+    sectionClassName() {
+      if (!this.title) return 'unnamed-section';
+      return `section_${this.title.replaceAll(' ', '-').toLowerCase()}`;
+    },
+    /* Used to fetch initial collapse state, and set new collapse state on change */
+    isExpanded: {
+      get() {
+        if (this.collapsed !== undefined) return !this.collapsed;
+        const collapseStateObject = this.locallyStoredCollapseStates();
+        if (collapseStateObject[this.uniqueKey] !== undefined) {
+          return collapseStateObject[this.uniqueKey];
+        }
+        return true;
+      },
+      set(newState) {
+        const collapseState = this.locallyStoredCollapseStates();
+        collapseState[this.uniqueKey] = newState;
+        localStorage.setItem(localStorageKeys.COLLAPSE_STATE, JSON.stringify(collapseState));
+      },
+    },
   },
   data: () => ({
-    isExpanded: false,
+    checkboxState: true,
   }),
   mounted() {
-    this.isExpanded = this.getCollapseState();
+    this.checkboxState = this.isExpanded;
+  },
+  watch: {
+    checkboxState(newState) {
+      this.isExpanded = newState;
+      this.updateLocalStorage(); // Save every change immediately
+    },
+    uniqueKey(newVal, oldVal) {
+      if (newVal !== oldVal) {
+        this.refreshCollapseState(); // Refresh state when key changes
+      }
+    },
   },
   methods: {
+    refreshCollapseState() {
+      this.checkboxState = this.isExpanded;
+    },
+    updateLocalStorage() {
+      const collapseState = this.locallyStoredCollapseStates();
+      collapseState[this.uniqueKey] = this.checkboxState;
+      localStorage.setItem(localStorageKeys.COLLAPSE_STATE, JSON.stringify(collapseState));
+    },
+    /* Either expand or collapse section, based on it's current state */
+    toggle() {
+      this.checkboxState = !this.checkboxState;
+    },
     /* Check that row & column span is valid, and not over the max */
     checkSpanNum(span, classPrefix) {
       const maxSpan = 6;
@@ -84,44 +136,14 @@ export default {
       return userCss ? userCss.replace(/[^a-zA-Z0-9- :;.]/g, '') : '';
     },
     /* Returns local storage collapse state data, and if not yet set then initialized is */
-    initialiseStorage() {
-      const storageKey = localStorageKeys.COLLAPSE_STATE;
-      /* Initialize function will create and set a blank object to storage */
-      const initStorage = () => localStorage.setItem(storageKey, JSON.stringify({}));
+    locallyStoredCollapseStates() {
       // If not yet set, then call initialize
-      if (!localStorage[storageKey]) {
-        initStorage();
+      if (!localStorage[localStorageKeys.COLLAPSE_STATE]) {
+        localStorage.setItem(localStorageKeys.COLLAPSE_STATE, JSON.stringify({}));
         return {};
       }
       // Otherwise, return value of local storage
-      return JSON.parse(localStorage[storageKey]);
-    },
-    /* If specified by user, return conf collapse state, otherwise check local storage */
-    getCollapseState() {
-      if (this.collapsed !== undefined) return !this.collapsed; // Check users config
-      const collapseStateObject = this.initialiseStorage(); // Check local storage
-      if (collapseStateObject[this.uniqueKey] !== undefined) {
-        return collapseStateObject[this.uniqueKey];
-      }
-      // Nothing specified, return Open
-      return true;
-    },
-    /* When section collapsed, update local storage, to remember for next time */
-    setCollapseState(id, newState) {
-      // Get the current localstorage collapse state object
-      const collapseState = JSON.parse(localStorage[localStorageKeys.COLLAPSE_STATE]);
-      // Add the new state to it
-      collapseState[id] = newState;
-      // Stringify, and set the new object into local storage
-      localStorage.setItem(localStorageKeys.COLLAPSE_STATE, JSON.stringify(collapseState));
-    },
-    /* Called when collapse state changes, trigger local storage update if needed */
-    collapseChanged(whatChanged) {
-      this.isExpanded = whatChanged.srcElement.checked;
-      if (this.collapseState === undefined) { // Only run, if user hasn't manually set prop
-        this.initialiseStorage();
-        this.setCollapseState(this.uniqueKey.toString(), this.isExpanded);
-      }
+      return JSON.parse(localStorage[localStorageKeys.COLLAPSE_STATE]);
     },
     openEditModal() {
       this.$emit('openEditSection');
@@ -208,7 +230,8 @@ export default {
       vertical-align: middle;
       margin-right: .7rem;
       transform: translateY(-2px);
-      transition: transform .2s ease-out;
+      opacity: 0.3;
+      transition: all 0.4s ease-in-out;
     }
   }
 
@@ -244,6 +267,18 @@ export default {
     float: right;
     right: 0.5rem;
     top: 0.5rem;
+    margin-left: 0.2rem;
+    margin-right: 0.2rem;
+    opacity: 0.3;
+    transition: all 0.4s ease-in-out;
+  }
+
+  /* On section hover, set interface icons to full visible */
+  &:hover {
+    .edit-mode-item, label.lbl-toggle::before {
+      opacity: 1;
+      transition: all 0.2s ease-out;
+    }
   }
 
   /* Makes sections fill available space */
