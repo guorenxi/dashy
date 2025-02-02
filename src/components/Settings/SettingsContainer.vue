@@ -1,5 +1,5 @@
 <template>
-  <section>
+  <section v-bind:class="{ 'settings-hidden': !settingsVisible }">
     <SearchBar ref="SearchBar"
       @user-is-searchin="userIsTypingSomething"
       v-if="searchVisible"
@@ -7,7 +7,7 @@
     <div class="options-outer">
       <div :class="`options-container ${!settingsVisible ? 'hide' : ''}`">
         <ThemeSelector />
-        <LayoutSelector :displayLayout="displayLayout" />
+        <LayoutSelector :displayLayout="$store.getters.layout" />
         <ItemSizeSelector :iconSize="iconSize" />
         <ConfigLauncher />
         <AuthButtons  v-if="userState !== 0" :userType="userState" />
@@ -20,7 +20,6 @@
         </button>
       </div>
     </div>
-    <KeyboardShortcutInfo />
     <AppInfoModal />
   </section>
 </template>
@@ -32,7 +31,6 @@ import ThemeSelector from '@/components/Settings/ThemeSelector';
 import LayoutSelector from '@/components/Settings/LayoutSelector';
 import ItemSizeSelector from '@/components/Settings/ItemSizeSelector';
 import AuthButtons from '@/components/Settings/AuthButtons';
-import KeyboardShortcutInfo from '@/components/Settings/KeyboardShortcutInfo';
 import AppInfoModal from '@/components/Configuration/AppInfoModal';
 import IconOpen from '@/assets/interface-icons/config-open-settings.svg';
 import IconClose from '@/assets/interface-icons/config-close.svg';
@@ -57,7 +55,6 @@ export default {
     LayoutSelector,
     ItemSizeSelector,
     AuthButtons,
-    KeyboardShortcutInfo,
     AppInfoModal,
     IconOpen,
     IconClose,
